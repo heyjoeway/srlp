@@ -119,11 +119,13 @@ def make8bppTiles(source, pal, tileAddr = 0, rows = 48, cols = 32):
 	return tiles
 
 def generateTilesheet(tiles, width=32):
+	mode = tiles[0].mode
+
 	tile_width = tiles[0].width
 	tile_height = tiles[0].height
 
 	height = math.ceil(len(tiles) / width)
-	img = Image.new('RGBA', (width * tile_width, height * tile_height))
+	img = Image.new(mode, (width * tile_width, height * tile_height))
 	for i in range(len(tiles)):
 		tile = tiles[i]
 		col = i % width

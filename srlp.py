@@ -18,7 +18,36 @@ import os
 import math
 import argparse
 
+def generateCollisionTiles(stage_collision_tile_data, stage_collision_attr_data):
+	stage_tile_count = len(stage_collision_attr_data)
+
+	stage_collision_tiles = []
+	for i in range(stage_tile_count):
+		collision_tile = Image.new('LA', (8, 8))
+		stage_collision_tiles.append(collision_tile)
+		collision_attr = stage_collision_attr_data[i]
+		collision_data_index = i * 8
+
+		for x in range(8):
+			byte = stage_collision_tile_data[collision_data_index + x]
+			collision_height = byte >> 4
+			collision_height_max = 8
+			if collision_height == 8:
+				collision_height = 0
+			elif collision_height == 0:
+				collision_height = 8
+			elif collision_height > 8:
+				collision_height_max = 16 - collision_height
+				collision_height = 0
+
+			for y in range(collision_height, collision_height_max):
+				collision_tile.putpixel((x, y), (collision_attr, 256))
+	
+	return stage_collision_tiles
+
 def generateMetatiles(stage_metatile_data, stage_tiles):
+	mode = stage_tiles[0].mode
+	
 	# So, how many metatiles will we be building?
 	stage_metatile_count = int(len(stage_metatile_data) / 128)
 	stage_metatiles = []
@@ -26,7 +55,7 @@ def generateMetatiles(stage_metatile_data, stage_tiles):
 	# Okay we got the tiles!  Let's start building the Map64.
 	source_index = 0
 	for j in range(stage_metatile_count):
-		metatile = Image.new('RGBA', (64, 64))
+		metatile = Image.new(mode, (64, 64))
 		stage_metatiles.append(metatile)
 		for y in range(8):
 			for x in range(8):
@@ -96,7 +125,7 @@ def extract(args):
 	stage_map_narc = ndspy.narc.NARC(
 		rom.getFileByName("narc/" + stage + "_map.narc")
 	)
-	stage_raw_narc = None
+	stage_raw_narc = stage_map_narc
 	try:
 		stage_raw_narc = ndspy.narc.NARC(
 			rom.getFileByName("narc/" + stage_raw + "_raw.narc")
@@ -104,60 +133,102 @@ def extract(args):
 	except:
 		pass
 
-	# Load the mapping data
-	stage_amap_data_lz10 = stage_map_narc.getFileByName(stage + "_a.mp")
-	stage_amap_data = ndspy.lz10.decompress(stage_amap_data_lz10)
-	stage_bmap_data_lz10 = stage_map_narc.getFileByName(stage + "_b.mp")
-	stage_bmap_data = ndspy.lz10.decompress(stage_bmap_data_lz10)
+	if args["collisionTiles"] or args["collisionChunks"] or args["collisionAmap"] or args["collisionBmap"] or args["collisionMap"]:
+		stage_collision_tile_data_lz10 = stage_raw_narc.getFileByName(stage + ".df")
+		stage_collision_tile_data = ndspy.lz10.decompress(stage_collision_tile_data_lz10)
+		stage_collision_attr_data_lz10 = stage_raw_narc.getFileByName(stage + ".di")
+		stage_collision_attr_data = ndspy.lz10.decompress(stage_collision_attr_data_lz10)
+		stage_collsion_tiles = generateCollisionTiles(stage_collision_tile_data, stage_collision_attr_data)
 
-	# Graphics data
-	if stage_raw_narc:
-		stage_graphics_data_lz10 = stage_raw_narc.getFileByName(stage_raw + ".ch")
-		stage_metatile_data_lz10 = stage_raw_narc.getFileByName(stage_raw + ".bk")
-	else:
-		stage_graphics_data_lz10 = stage_map_narc.getFileByName(stage + ".ch")
-		stage_metatile_data_lz10 = stage_map_narc.getFileByName(stage + ".bk")
+		if args["collisionTiles"]:
+			libripper.generateTilesheet(stage_collsion_tiles).save(args["collisionTiles"])
 
-	stage_graphics_data = ndspy.lz10.decompress(stage_graphics_data_lz10)
-	stage_metatile_data = ndspy.lz10.decompress(stage_metatile_data_lz10)
+		if args["collisionChunks"] or args["collisionAmap"] or args["collisionBmap"] or args["collisionMap"]:
+			stage_metatile_data_lz10 = stage_raw_narc.getFileByName(stage + ".bk")
+			stage_metatile_data = ndspy.lz10.decompress(stage_metatile_data_lz10)
+			stage_metatiles = generateMetatiles(stage_metatile_data, stage_collsion_tiles)
 
-	# Palette data
-	stage_palette_data_lz10 = stage_map_narc.getFileByName(stage + ".pl")
-	stage_palette_data = ndspy.lz10.decompress(stage_palette_data_lz10)
-	stage_palette = libripper.make8BitGBAPalette(stage_palette_data)
+			if args["collisionChunks"]:
+				libripper.generateTilesheet(stage_metatiles).save(args["collisionChunks"])
 
-	# Build the 8x8 tile images
-	stage_tiles = libripper.make8bppTiles(
-		stage_graphics_data,
-		stage_palette
-	)
+			stage_amap_img = None
+			stage_bmap_img = None
 
-	if args["tiles"]:
-		libripper.generateTilesheet(stage_tiles).save(args["tiles"])
+			if args["collisionAmap"] or args["collisionMap"]:
+				# Load the mapping data
+				stage_amap_data_lz10 = stage_map_narc.getFileByName(stage + "_a.mp")
+				stage_amap_data = ndspy.lz10.decompress(stage_amap_data_lz10)
 
-	if args["chunks"] or args["amap"] or args["bmap"] or args["map"]:
-		stage_metatiles = generateMetatiles(stage_metatile_data, stage_tiles)
+				stage_amap_img = generateMap(stage_amap_data, stage_metatiles)
+				if args["collisionAmap"]:
+					stage_amap_img.save(args["collisionAmap"])
+			
+			if args["collisionBmap"] or args["collisionMap"]:
+				# Load the mapping data
+				stage_bmap_data_lz10 = stage_map_narc.getFileByName(stage + "_b.mp")
+				stage_bmap_data = ndspy.lz10.decompress(stage_bmap_data_lz10)
 
-		if args["chunks"]:
-			libripper.generateTilesheet(stage_metatiles).save(args["chunks"])
+				stage_bmap_img = generateMap(stage_bmap_data, stage_metatiles)
+				if args["collisionBmap"]:
+					stage_bmap_img.save(args["collisionBmap"])
 
-		stage_amap_img = None
-		stage_bmap_img = None
+			if args["collisionMap"]:
+				stage_map_img = stage_bmap_img.copy()
+				stage_map_img.paste(stage_amap_img, (0,0), stage_amap_img)
+				stage_map_img.save(args["collisionMap"])
 
-		if args["amap"] or args["map"]:
-			stage_amap_img = generateMap(stage_amap_data, stage_metatiles)
-			if args["amap"]:
-				stage_amap_img.save(args["amap"])
-		
-		if args["bmap"] or args["map"]:
-			stage_bmap_img = generateMap(stage_bmap_data, stage_metatiles)
-			if args["bmap"]:
-				stage_bmap_img.save(args["bmap"])
+	if args["tiles"] or args["chunks"] or args["amap"] or args["bmap"] or args["map"]:
+		# Palette data
+		stage_palette_data_lz10 = stage_map_narc.getFileByName(stage + ".pl")
+		stage_palette_data = ndspy.lz10.decompress(stage_palette_data_lz10)
+		stage_palette = libripper.make8BitGBAPalette(stage_palette_data)
 
-		if args["map"]:
-			stage_map_img = stage_bmap_img.copy()
-			stage_map_img.paste(stage_amap_img, (0,0), stage_amap_img)
-			stage_map_img.save(args["map"])
+		# Graphics data
+		stage_graphics_data_lz10 = stage_raw_narc.getFileByName(stage + ".ch")
+		stage_graphics_data = ndspy.lz10.decompress(stage_graphics_data_lz10)
+
+		# Build the 8x8 tile images
+		stage_tiles = libripper.make8bppTiles(
+			stage_graphics_data,
+			stage_palette
+		)
+	
+		if args["tiles"]:
+			libripper.generateTilesheet(stage_tiles).save(args["tiles"])
+
+		if args["chunks"] or args["amap"] or args["bmap"] or args["map"]:
+			stage_metatile_data_lz10 = stage_raw_narc.getFileByName(stage + ".bk")
+			stage_metatile_data = ndspy.lz10.decompress(stage_metatile_data_lz10)
+			stage_metatiles = generateMetatiles(stage_metatile_data, stage_tiles)
+
+			if args["chunks"]:
+				libripper.generateTilesheet(stage_metatiles).save(args["chunks"])
+
+			stage_amap_img = None
+			stage_bmap_img = None
+
+			if args["amap"] or args["map"]:
+				# Load the mapping data
+				stage_amap_data_lz10 = stage_map_narc.getFileByName(stage + "_a.mp")
+				stage_amap_data = ndspy.lz10.decompress(stage_amap_data_lz10)
+
+				stage_amap_img = generateMap(stage_amap_data, stage_metatiles)
+				if args["amap"]:
+					stage_amap_img.save(args["amap"])
+			
+			if args["bmap"] or args["map"]:
+				# Load the mapping data
+				stage_bmap_data_lz10 = stage_map_narc.getFileByName(stage + "_b.mp")
+				stage_bmap_data = ndspy.lz10.decompress(stage_bmap_data_lz10)
+
+				stage_bmap_img = generateMap(stage_bmap_data, stage_metatiles)
+				if args["bmap"]:
+					stage_bmap_img.save(args["bmap"])
+
+			if args["map"]:
+				stage_map_img = stage_bmap_img.copy()
+				stage_map_img.paste(stage_amap_img, (0,0), stage_amap_img)
+				stage_map_img.save(args["map"])
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -165,6 +236,11 @@ if __name__ == "__main__":
 	parser.add_argument("stage", help="Stage ID (ex. first act of first zone would be \"z11\")")
 	parser.add_argument("--tiles", help="Path to output tiles")
 	parser.add_argument("--chunks", help="Path to output chunks")
+	parser.add_argument("--collisionTiles", help="Path to output collision tiles")
+	parser.add_argument("--collisionChunks", help="Path to output collision chunks")
+	parser.add_argument("--collisionAmap", help="Path to output collision map A (high map")
+	parser.add_argument("--collisionBmap", help="Path to output collision map B (low/default map")
+	parser.add_argument("--collisionMap", help="Path to output collision map")
 	parser.add_argument("--amap", help="Path to output map A (high map)")
 	parser.add_argument("--bmap", help="Path to output map B (low/default map)")
 	parser.add_argument("--map", help="Path to output composited map")
