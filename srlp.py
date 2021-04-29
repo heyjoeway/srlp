@@ -29,13 +29,10 @@ parser.add_argument("--map", help="Path to output composited map")
 args = parser.parse_args()
 
 # What shall we be ripping today?
-# First, the game's rom path.
-rom_path = "C:\\Games\\roms\\retail\\nds\\Sonic Colors (USA) (En,Ja,Fr,De,Es,It).nds"
-
-rom = ndspy.rom.NintendoDSRom.fromFile(rom_path)
+rom = ndspy.rom.NintendoDSRom.fromFile(args.path)
 
 # Next, the map data. Ex. z11 is the first act of the first zone.
-stage = "z11"
+stage = args.stage
 stage_map_narc = ndspy.narc.NARC(
 	rom.getFileByName("narc/" + stage + "_map.narc")
 )
